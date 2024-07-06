@@ -1,10 +1,11 @@
-# Project-Functions-and-Errors
+# Project-Smart-Contract-Management
 
-This programs is a straightforward example designed to illustrate the fundamental error handling mechanisms in Solidity. This contract enables users to deposit and withdraw Ether while ensuring that specific conditions are met to prevent errors and unauthorized access. It leverages require and assert statements to enforce these conditions, making it an excellent educational tool for those new to smart contract development.
+This project presents an Ethereum smart contract created in Solidity with strong error handling for transaction management. It let users to make deposits and withdrawals of Ether while imposing restrictions to guard against mistakes and unwanted access. 
 
 ## Description
 
-This program provides an in-depth look at basic error handling within a Solidity smart contract through three core functions. The deposit function allows users to add Ether to the contract, ensuring through a require statement that the deposit amount is greater than zero, thus preventing empty transactions. The withdraw function permits the owner of the contract to withdraw a specified amount of Ether, incorporating multiple require statements to confirm that the amount does not exceed the contract's balance and that the caller is indeed the owner. Lastly, the check owner function uses an assert statement to verify that the caller is the contract owner, serving as a critical check to maintain the contract's integrity.
+This program shows how to safely manage transactions using an Ethereum smart contract in communication with a React-based front end. The program links users' MetaMask wallets to the Ethereum blockchain so they may deposit and withdraw ether by using the Web3.js and ethers.js libraries. Deployed at 0x5FbDB2315678afecb367f032d93F642f64180aa3, the smart contract carries out error handling and transaction history tracking. In addition to performing transactions and seeing their account balances, users may also fetch and dynamically display transaction history and adjust its visibility. In order to improve usability and accessibility for Ethereum blockchain interactions, the front end makes advantage of contemporary UI principles, such as responsive buttons and visual feedback on user inputs.
+
 
 ## Getting Started
 
@@ -15,44 +16,66 @@ To execute this program, you may use Remix, an online Solidity IDE; to get start
 Once on the Remix website, click the "+" symbol in the left-hand sidebar to create a new file. Save the file as HelloWorld.sol. Copy and paste the code below into the file.
 
 ```javascript
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.9;
 
-contract ErrorHandlingDemo {
-    address public user;
+//import "hardhat/console.sol";
+
+contract Assessment {
+    address payable public owner;
     uint256 public balance;
 
-    constructor() {
-        user = msg.sender;
+    event Deposit(uint256 amount);
+    event Withdraw(uint256 amount);
+
+    constructor(uint initBalance) payable {
+        owner = payable(msg.sender);
+        balance = initBalance;
     }
 
-    // Function to deposit 
-    function deposit() public payable {
-        require(msg.value > 0, "Deposit amount must be greater than zero");
-        balance += msg.value;
+    function getBalance() public view returns(uint256){
+        return balance;
     }
 
-    // Function to withdraw 
-    function withdraw(uint256 amount) public {
-        require(amount <= balance, "Insufficient balance");
-        require(msg.sender == user, "Only the owner can withdraw");
-        payable(msg.sender).transfer(amount);
-        balance -= amount;
+    function deposit(uint256 _amount) public payable {
+        uint _previousBalance = balance;
+
+        // make sure this is the owner
+        require(msg.sender == owner, "You are not the owner of this account");
+
+        // perform transaction
+        balance += _amount;
+
+        // assert transaction completed successfully
+        assert(balance == _previousBalance + _amount);
+
+        // emit the event
+        emit Deposit(_amount);
     }
 
-    // Function to assert
-    function checkOwner() public view {
-        assert(user == msg.sender);
-    }
+    // custom error
+    error InsufficientBalance(uint256 balance, uint256 withdrawAmount);
 
-    // Function to revert
-    function triggerRevert() public view {
-        if (msg.sender != user) {
-            revert("Caller is not the owner");
+    function withdraw(uint256 _withdrawAmount) public {
+        require(msg.sender == owner, "You are not the owner of this account");
+        uint _previousBalance = balance;
+        if (balance < _withdrawAmount) {
+            revert InsufficientBalance({
+                balance: balance,
+                withdrawAmount: _withdrawAmount
+            });
         }
+
+        // withdraw the given amount
+        balance -= _withdrawAmount;
+
+        // assert the balance is correct
+        assert(balance == (_previousBalance - _withdrawAmount));
+
+        // emit the event
+        emit Withdraw(_withdrawAmount);
     }
 }
-
 
 ```
 
