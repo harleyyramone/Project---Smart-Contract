@@ -1,227 +1,290 @@
 import { useState, useEffect } from "react";
 import { ethers } from "ethers";
-import atm_abi from "../artifacts/contracts/Assessment.sol/Assessment.json";
+import ticket_ABI from "../artifacts/contracts/Assessment.sol/MovieTicket.json";
 
-export default function HomePage() {
-  const [ethWallet, setEthWallet] = useState(undefined);
-  const [account, setAccount] = useState(undefined);
-  const [atm, setATM] = useState(undefined);
-  const [balance, setBalance] = useState(undefined);
-  const [transactions, setTransactions] = useState([]);
-  const [showTransactions, setShowTransactions] = useState(false);
+const contractAddress = "0x9E545E3C0baAB3E08CdfD552C960A1050f373042";
 
-  const contractAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
-  const atmABI = atm_abi.abi;
+function App() {
+    const [ethWallet, setEthWallet] = useState(undefined);
+    const [account, setAccount] = useState(undefined);
+    const [contract, setContract] = useState(undefined);
+    const [balance, setBalance] = useState("0.0");
+    const [seatNumber, setSeatNumber] = useState("");
+    const [refundSeatNumber, setRefundSeatNumber] = useState("");
+    const [transactions, setTransactions] = useState([]);
 
-  const getWallet = async () => {
-    if (window.ethereum) {
-      setEthWallet(window.ethereum);
-    }
+    useEffect(() => {
+        async function initialize() {
+            if (window.ethereum) {
+                setEthWallet(window.ethereum);
+                await getWallet();
+            } else {
+                console.error("MetaMask is not installed");
+            }
+        }
 
-    if (ethWallet) {
-      const account = await ethWallet.request({ method: "eth_accounts" });
-      handleAccount(account);
-    }
-  };
+        initialize();
+    }, []);
 
-  const handleAccount = (account) => {
-    if (account) {
-      console.log("Account connected: ", account);
-      setAccount(account);
-    } else {
-      console.log("No account found");
-    }
-  };
+    const getWallet = async () => {
+        if (ethWallet) {
+            try {
+                const accounts = await ethWallet.request({ method: "eth_accounts" });
+                handleAccount(accounts);
+            } catch (error) {
+                console.error("Error fetching accounts:", error);
+            }
+        }
+    };
 
-  const connectAccount = async () => {
-    if (!ethWallet) {
-      alert("MetaMask wallet is required to connect");
-      return;
-    }
+    const handleAccount = (accounts) => {
+        if (accounts.length > 0) {
+            setAccount(accounts[0]);
+            getContract();
+        } else {
+            console.log("No account found");
+        }
+    };
 
-    const accounts = await ethWallet.request({ method: "eth_requestAccounts" });
-    handleAccount(accounts);
+    const connectAccount = async () => {
+        if (!ethWallet) {
+            alert('MetaMask wallet is required to connect');
+            return;
+        }
 
-    // once wallet is set we can get a reference to our deployed contract
-    getATMContract();
-  };
+        try {
+            const accounts = await ethWallet.request({ method: 'eth_requestAccounts' });
+            handleAccount(accounts);
+        } catch (error) {
+            console.error("Error connecting account:", error);
+        }
+    };
 
-  const getATMContract = () => {
-    const provider = new ethers.providers.Web3Provider(ethWallet);
-    const signer = provider.getSigner();
-    const atmContract = new ethers.Contract(contractAddress, atmABI, signer);
+    const getContract = () => {
+        if (ethWallet) {
+            const provider = new ethers.providers.Web3Provider(ethWallet);
+            const signer = provider.getSigner();
+            const atmContract = new ethers.Contract(contractAddress, ticket_ABI.abi, signer);
+            setContract(atmContract);
+            getBalance();
+            getTransactionHistory();
+        }
+    };
 
-    setATM(atmContract);
-  };
+    const getBalance = async () => {
+        if (contract && account) {
+            try {
+                const balanceBigNumber = await contract.getBalance();
+                const formattedBalance = ethers.utils.formatEther(balanceBigNumber);
+                setBalance(formattedBalance);
+            } catch (error) {
+                console.error("Error fetching balance:", error);
+            }
+        }
+    };
 
-  const getBalance = async () => {
-    if (atm) {
-      setBalance((await atm.getBalance()).toNumber());
-    }
-  };
+    const getTransactionHistory = async () => {
+        if (contract) {
+            try {
+                const txHistory = await contract.getTransactionHistory();
+                const formattedTxHistory = txHistory.map(tx => ({
+                    user: tx.user,
+                    action: tx.action,
+                    seatNumber: tx.seatNumber.toString(),
+                    timestamp: tx.timestamp.toNumber()
+                }));
+                setTransactions(formattedTxHistory);
+            } catch (error) {
+                console.error("Error fetching transaction history:", error);
+            }
+        }
+    };
 
-  const deposit = async () => {
-    if (atm) {
-      let tx = await atm.deposit(1);
-      await tx.wait();
-      getBalance();
-      getTransactions();
-    }
-  };
+    const buyTicket = async () => {
+        if (!seatNumber || !contract) return;
 
-  const withdraw = async () => {
-    if (atm) {
-      let tx = await atm.withdraw(1);
-      await tx.wait();
-      getBalance();
-      getTransactions();
-    }
-  };
+        try {
+            const tx = await contract.buyTicket(seatNumber, { value: ethers.utils.parseEther("1") });
+            await tx.wait();
+            alert("Ticket successfully purchased for seat " + seatNumber);
+            getBalance();
+            getTransactionHistory();
+        } catch (error) {
+            console.error("Error buying ticket:", error);
+        }
+    };
 
-  const getTransactions = async () => {
-    if (atm) {
-      const depositFilter = atm.filters.Deposit();
-      const withdrawFilter = atm.filters.Withdraw();
+    const refundTicket = async () => {
+        if (!refundSeatNumber || !contract) return;
 
-      const depositEvents = await atm.queryFilter(depositFilter);
-      const withdrawEvents = await atm.queryFilter(withdrawFilter);
-
-      const allEvents = [...depositEvents, ...withdrawEvents];
-      allEvents.sort((a, b) => a.blockNumber - b.blockNumber);
-
-      const txs = allEvents.map(event => ({
-        type: event.event,
-        amount: event.args.amount.toNumber(),
-        blockNumber: event.blockNumber,
-      }));
-
-      setTransactions(txs);
-    }
-  };
-
-  const toggleTransactions = async () => {
-    if (!showTransactions) {
-      await getTransactions();
-    }
-    setShowTransactions(!showTransactions);
-  };
-
-  const initUser = () => {
-    // Check to see if user has Metamask
-    if (!ethWallet) {
-      return <p>Please install Metamask in order to use this ATM.</p>;
-    }
-
-    // Check to see if user is connected. If not, connect to their account
-    if (!account) {
-      return (
-        <button onClick={connectAccount} style={buttonStyle}>
-          Please connect your Metamask wallet
-        </button>
-      );
-    }
-
-    if (balance === undefined) {
-      getBalance();
-    }
+        try {
+            const tx = await contract.refundTicket(refundSeatNumber);
+            await tx.wait();
+            alert("Ticket successfully refunded for seat " + refundSeatNumber);
+            getBalance();
+            getTransactionHistory();
+        } catch (error) {
+            console.error("Error refunding ticket:", error);
+        }
+    };
 
     return (
-      <div>
-        <p>Your Account: {account}</p>
-        <p>Your Balance: {balance}</p>
-        <button onClick={deposit} style={buttonStyle} onMouseEnter={hoverEffect} onMouseLeave={resetEffect}>
-          Deposit 1 ETH
-        </button>
-        <button onClick={withdraw} style={buttonStyle} onMouseEnter={hoverEffect} onMouseLeave={resetEffect}>
-          Withdraw 1 ETH
-        </button>
-        <button onClick={toggleTransactions} style={buttonStyle} onMouseEnter={hoverEffect} onMouseLeave={resetEffect}>
-          {showTransactions ? "Hide Transaction History" : "Show Transaction History"}
-        </button>
-        {showTransactions && (
-          <ul>
-            {transactions.map((tx, index) => (
-              <li key={index}>
-                {tx.type}: {tx.amount} ETH (Block: {tx.blockNumber})
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+        <main className="container">
+            <header>
+                <h1>Movie Ticket DApp</h1>
+            </header>
+            <div className="content">
+                {ethWallet ? (
+                    account ? (
+                        <div className="account-info">
+                            <p className="info">Your Account: {account}</p>
+                            <p className="info">Your Balance: {balance} ETH</p>
+
+                            <div className="actions">
+                                <h3>Buy Ticket</h3>
+                                <input
+                                    type="number"
+                                    value={seatNumber}
+                                    onChange={(e) => setSeatNumber(e.target.value)}
+                                    placeholder="Seat Number (1-10)"
+                                    className="input"
+                                />
+                                <button className="button" onClick={buyTicket}>Buy Ticket</button>
+                            </div>
+
+                            <div className="actions">
+                                <h3>Refund Ticket</h3>
+                                <input
+                                    type="number"
+                                    value={refundSeatNumber}
+                                    onChange={(e) => setRefundSeatNumber(e.target.value)}
+                                    placeholder="Seat Number (1-10)"
+                                    className="input"
+                                />
+                                <button className="button" onClick={refundTicket}>Refund Ticket</button>
+                            </div>
+
+                            <div className="transactions">
+                                <h3>Transaction History</h3>
+                                <ul>
+                                    {transactions.map((tx, index) => (
+                                        <li key={index}>
+                                            {tx.user} {tx.action}ed seat {tx.seatNumber} at {new Date(tx.timestamp * 1000).toLocaleString()}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </div>
+                    ) : (
+                        <button className="button connect-button" onClick={connectAccount}>Connect MetaMask</button>
+                    )
+                ) : (
+                    <p>Please install MetaMask to use this DApp.</p>
+                )}
+            </div>
+
+            <style jsx>{`
+                .container {
+                    font-family: 'Roboto', sans-serif;
+                    text-align: center;
+                    background: linear-gradient(to right, #6a11cb, #2575fc);
+                    color: #fff;
+                    padding: 20px;
+                    border-radius: 10px;
+                    max-width: 600px;
+                    margin: 20px auto;
+                }
+
+                header {
+                    margin-bottom: 20px;
+                }
+
+                header h1 {
+                    font-size: 2.5rem;
+                    margin: 0;
+                }
+
+                .content {
+                    background: #fff;
+                    color: #333;
+                    padding: 20px;
+                    border-radius: 10px;
+                    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                }
+
+                .account-info {
+                    margin-bottom: 20px;
+                }
+
+                .info {
+                    font-size: 1.2rem;
+                }
+
+                .actions {
+                    margin-bottom: 20px;
+                }
+
+                .actions h3 {
+                    margin: 0 0 10px;
+                    color: #333;
+                    font-size: 1.4rem;
+                }
+
+                .input {
+                    padding: 10px;
+                    border: 1px solid #ddd;
+                    border-radius: 5px;
+                    width: 150px;
+                    margin-right: 10px;
+                }
+
+                .button {
+                    padding: 10px 20px;
+                    background-color: #007bff;
+                    border: none;
+                    color: #fff;
+                    border-radius: 5px;
+                    cursor: pointer;
+                    font-size: 1rem;
+                    transition: background-color 0.3s;
+                }
+
+                .button:hover {
+                    background-color: #0056b3;
+                }
+
+                .connect-button {
+                    background-color: #28a745;
+                }
+
+                .connect-button:hover {
+                    background-color: #218838;
+                }
+
+                .transactions {
+                    margin-top: 20px;
+                }
+
+                .transactions h3 {
+                    margin-bottom: 10px;
+                    color: #333;
+                }
+
+                .transactions ul {
+                    list-style: none;
+                    padding: 0;
+                }
+
+                .transactions li {
+                    background-color: #f8f9fa;
+                    padding: 10px;
+                    border-radius: 5px;
+                    margin-bottom: 5px;
+                    font-size: 0.9rem;
+                }
+            `}</style>
+        </main>
     );
-  };
-
-  const buttonStyle = {
-    backgroundColor: "#1c1c1c",
-    color: "white",
-    padding: "10px 20px",
-    margin: "10px",
-    border: "none",
-    borderRadius: "5px",
-    cursor: "pointer",
-    fontSize: "16px",
-    transition: "background-color 0.3s, transform 0.3s",
-  };
-
-  const hoverEffect = (e) => {
-    e.target.style.backgroundColor = "#555";
-    e.target.style.transform = "scale(1.05)";
-  };
-
-  const resetEffect = (e) => {
-    e.target.style.backgroundColor = "#1c1c1c";
-    e.target.style.transform = "scale(1)";
-  };
-
-  useEffect(() => {
-    getWallet();
-  }, []);
-
-  return (
-    <main className="container">
-      <header>
-        <h1>Welcome to the Metacrafters ATM!</h1>
-      </header>
-      <div className="card">{initUser()}</div>
-      <style jsx>{`
-        .container {
-          text-align: center;
-          background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
-          height: 100vh;
-          display: flex;
-          flex-direction: column;
-          justify-content: center;
-          align-items: center;
-          color: white;
-        }
-
-        .card {
-          background: linear-gradient(135deg, #ffffff, #f0f0f0);
-          color: #1c1c1c;
-          padding: 20px;
-          border-radius: 10px;
-          box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-          text-align: center;
-          max-width: 400px;
-          width: 100%;
-        }
-
-        header h1 {
-          font-size: 2em;
-          animation: glow 1.5s ease-in-out infinite alternate;
-        }
-
-        @keyframes glow {
-          from {
-            text-shadow: 0 0 10px #fff, 0 0 20px #fff, 0 0 30px #ff00ff, 0 0 40px #ff00ff,
-              0 0 50px #ff00ff, 0 0 60px #ff00ff, 0 0 70px #ff00ff;
-          }
-          to {
-            text-shadow: 0 0 20px #fff, 0 0 30px #ff00ff, 0 0 40px #ff00ff, 0 0 50px #ff00ff,
-              0 0 60px #ff00ff, 0 0 70px #ff00ff, 0 0 80px #ff00ff;
-          }
-        }
-      `}</style>
-    </main>
-  );
 }
+
+export default App;
