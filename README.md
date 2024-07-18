@@ -1,10 +1,11 @@
 # Project-Smart-Contract-Management
 
-This project presents an Ethereum smart contract created in Solidity with strong error handling for transaction management. It let users to make deposits and withdrawals of Ether while imposing restrictions to guard against mistakes and unwanted access. 
+This project utilizes a smart contract on the Ethereum blockchain to manage Movie Ticket purchases and refunds. It uses Solidity to enable safe, transparent, and automated transactions, allowing users to purchase and return tickets while keeping a detailed record of all transactions.
 
 ## Description
 
-This program shows how to safely manage transactions using an Ethereum smart contract in communication with a React-based front end. The program links users' MetaMask wallets to the Ethereum blockchain so they may deposit and withdraw ether by using the Web3.js and ethers.js libraries. Deployed at 0x5FbDB2315678afecb367f032d93F642f64180aa3, the smart contract carries out error handling and transaction history tracking. In addition to performing transactions and seeing their account balances, users may also fetch and dynamically display transaction history and adjust its visibility. In order to improve usability and accessibility for Ethereum blockchain interactions, the front end makes advantage of contemporary UI principles, such as responsive buttons and visual feedback on user inputs.
+The MovieTicket smart contract enables users to purchase and refund movie tickets. Users can purchase a ticket by transferring one ether, which identifies the seat as occupied and records the transaction. If a user requests a refund when the seat is taken, the seat becomes vacant again and the ether is returned to the user. The contract tracks seat occupancy, maintains a transaction history, and allows users to examine balances and seat status. The contract starts with the owner having a balance of 100 ether to facilitate reimbursements.
+
 
 
 ## Getting Started
@@ -16,64 +17,86 @@ To execute this program, you may use Remix, an online Solidity IDE; to get start
 Once on the Remix website, click the "+" symbol in the left-hand sidebar to create a new file. Save the file as HelloWorld.sol. Copy and paste the code below into the file.
 
 ```javascript
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.9;
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
 
-//import "hardhat/console.sol";
+contract MovieTicket {
+    address public owner;
+    mapping(uint256 => bool) public seatOccupied;
+    mapping(address => uint256) public balances;
 
-contract Assessment {
-    address payable public owner;
-    uint256 public balance;
-
-    event Deposit(uint256 amount);
-    event Withdraw(uint256 amount);
-
-    constructor(uint initBalance) payable {
-        owner = payable(msg.sender);
-        balance = initBalance;
+    struct Transaction {
+        address user;
+        uint256 seatNumber;
+        string action; // "buy" or "refund"
+        uint256 timestamp;
     }
 
-    function getBalance() public view returns(uint256){
-        return balance;
+    Transaction[] public transactions;
+
+    constructor() {
+        owner = msg.sender;
+        balances[owner] = 100 ether; // Initialize owner's balance to 100 ETH
     }
 
-    function deposit(uint256 _amount) public payable {
-        uint _previousBalance = balance;
+    function buyTicket(uint256 seatNumber) external payable {
+        require(msg.value >= 1 ether, "Insufficient funds to buy ticket");
+        require(seatNumber >= 1 && seatNumber <= 10, "Invalid seat number");
+        require(!seatOccupied[seatNumber], "Seat already occupied");
+        require(balances[msg.sender] >= 1 ether, "Insufficient balance");
 
-        // make sure this is the owner
-        require(msg.sender == owner, "You are not the owner of this account");
+        // Mark seat as occupied
+        seatOccupied[seatNumber] = true;
 
-        // perform transaction
-        balance += _amount;
+        // Deduct from sender's balance
+        balances[msg.sender] -= 1 ether;
 
-        // assert transaction completed successfully
-        assert(balance == _previousBalance + _amount);
-
-        // emit the event
-        emit Deposit(_amount);
+        // Log transaction
+        transactions.push(Transaction(msg.sender, seatNumber, "buy", block.timestamp));
     }
 
-    // custom error
-    error InsufficientBalance(uint256 balance, uint256 withdrawAmount);
+    function refundTicket(uint256 seatNumber) external {
+        require(seatOccupied[seatNumber], "Seat is not occupied");
 
-    function withdraw(uint256 _withdrawAmount) public {
-        require(msg.sender == owner, "You are not the owner of this account");
-        uint _previousBalance = balance;
-        if (balance < _withdrawAmount) {
-            revert InsufficientBalance({
-                balance: balance,
-                withdrawAmount: _withdrawAmount
-            });
+        // Refund ticket
+        require(balances[owner] >= 1 ether, "Owner has insufficient balance to refund");
+        balances[owner] -= 1 ether;
+        balances[msg.sender] += 1 ether;
+        payable(msg.sender).transfer(1 ether);
+
+        // Mark seat as vacant
+        seatOccupied[seatNumber] = false;
+
+        // Log transaction
+        transactions.push(Transaction(msg.sender, seatNumber, "refund", block.timestamp));
+    }
+
+    function getTakenSeats() external view returns (uint256[] memory) {
+        uint256 count = 0;
+        for (uint256 i = 1; i <= 10; i++) {
+            if (seatOccupied[i]) {
+                count++;
+            }
         }
 
-        // withdraw the given amount
-        balance -= _withdrawAmount;
+        uint256[] memory takenSeats = new uint256[](count);
+        uint256 index = 0;
+        for (uint256 i = 1; i <= 10; i++) {
+            if (seatOccupied[i]) {
+                takenSeats[index] = i;
+                index++;
+            }
+        }
 
-        // assert the balance is correct
-        assert(balance == (_previousBalance - _withdrawAmount));
+        return takenSeats;
+    }
 
-        // emit the event
-        emit Withdraw(_withdrawAmount);
+    function getTransactionHistory() external view returns (Transaction[] memory) {
+        return transactions;
+    }
+
+    function getBalance() external view returns (uint256) {
+        return balances[msg.sender];
     }
 }
 
